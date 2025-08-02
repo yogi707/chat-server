@@ -2,14 +2,16 @@
 Gemini AI Service
 
 This service handles integration with Google's Gemini AI API for generating
-AI-powered responses to user queries. It provides a clean interface for
-interacting with the Gemini models while handling errors and configuration.
+AI-powered responses to user queries. It provides both regular and streaming
+responses with proper async support and error handling.
 """
 
+import asyncio
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, AsyncGenerator
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from app.schemas.streaming import  StreamingChunk
 
 from app.core.config import settings
 
@@ -110,20 +112,65 @@ class GeminiService:
         """
         Asynchronously generate content using Gemini.
         
-        Note: The google-generativeai library doesn't have built-in async support,
-        so this is a wrapper that can be extended for true async operations if needed.
+        Uses asyncio.run_in_executor to run the synchronous Gemini API
+        in a thread pool to avoid blocking the event loop.
         """
         try:
-            # For now, we'll use the synchronous API
-            # In a production environment, you might want to use asyncio.run_in_executor
-            # to run this in a thread pool to avoid blocking the event loop
-            response = self.model.generate_content(query)
+            loop = asyncio.get_event_loop()
+            # Run the synchronous API call in a thread pool
+            response = await loop.run_in_executor(
+                None, 
+                lambda: self.model.generate_content(query)
+            )
             return response
             
         except Exception as e:
             logger.error(f"Content generation failed: {str(e)}")
             raise
     
+    def generate_stream(self, query: str):
+        """
+        Generate a streaming response to a user query using Gemini AI.
+        
+        This method yields chunks of the response as they're generated,
+        allowing for real-time streaming to the client.
+        
+        Args:
+            query (str): The user's question or prompt
+            
+        Yields:
+            Dict[str, Any]: Chunks of the response containing text and metadata
+            
+        Raises:
+            ValueError: If API key is not configured
+            Exception: If API call fails
+        """
+        if not self.api_key:
+            raise ValueError("Gemini API key is not configured")
+        
+        if not self.model:
+            raise ValueError("Gemini model is not initialized")
+        
+        try:
+            logger.info(f"Received streaming query request: {query[:100]}...")
+            response = self.model.generate_content(query, stream=True)
+            for chunk_data  in response:
+                chunk = StreamingChunk(**{
+                        "text": chunk_data.text,
+                        "model": self.model_name,
+                        "done": False
+                    })
+                chunk_json = chunk.model_dump_json()
+                if chunk.text:
+                    yield f"data: {chunk_json}\n\n"
+            yield f"data: {StreamingChunk(text='', model=gemini_service.model_name, done=True).model_dump_json()}\n\n"
+                
+        except Exception as e:
+            logger.error(f"Error in streaming Gemini response: {str(e)}")
+            # Send error chunk
+            yield f"data: {StreamingChunk(text='', model=self.model_name, error=str(e), done=True).model_dump_json()}\n\n"
+    
+
     def is_configured(self) -> bool:
         """
         Check if the Gemini service is properly configured.
