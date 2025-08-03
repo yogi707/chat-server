@@ -24,6 +24,11 @@ class StreamingChunk(BaseModel):
         description="The AI model generating the response",
         example="gemini-2.0-flash-exp"
     )
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="The conversation ID this chunk belongs to",
+        example="550e8400-e29b-41d4-a716-446655440000"
+    )
     done: bool = Field(
         description="Whether this is the final chunk in the stream",
         default=False
@@ -39,16 +44,19 @@ class StreamingChunk(BaseModel):
                 {
                     "text": "The capital of France",
                     "model": "gemini-2.0-flash-exp",
+                    "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
                     "done": False
                 },
                 {
                     "text": " is Paris.",
-                    "model": "gemini-2.0-flash-exp", 
+                    "model": "gemini-2.0-flash-exp",
+                    "conversation_id": "550e8400-e29b-41d4-a716-446655440000", 
                     "done": False
                 },
                 {
                     "text": "",
                     "model": "gemini-2.0-flash-exp",
+                    "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
                     "done": True
                 }
             ]
@@ -72,10 +80,22 @@ class StreamingQueryRequest(BaseModel):
         example="Explain quantum computing step by step"
     )
     
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="Optional conversation ID to maintain context. If not provided, a new conversation will be created.",
+        example="550e8400-e29b-41d4-a716-446655440000"
+    )
+    
     model_config = {
         "json_schema_extra": {
-            "example": {
-                "query": "Write a short story about a robot learning to paint"
-            }
+            "examples": [
+                {
+                    "query": "Write a short story about a robot learning to paint"
+                },
+                {
+                    "query": "What did you think about the robot story?",
+                    "conversation_id": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            ]
         }
     }

@@ -20,6 +20,7 @@ from typing import AsyncGenerator
 from app.schemas.query import QueryRequest, QueryResponse, ErrorResponse
 from app.schemas.streaming import StreamingQueryRequest
 from app.services.gemini_service import gemini_service
+from app.services.conversation_store import conversation_store
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +241,7 @@ async def stream_query_ai(request: StreamingQueryRequest) -> StreamingResponse:
         )
     
     return StreamingResponse(
-        gemini_service.generate_stream(request.query),
+        gemini_service.generate_stream(request.query, request.conversation_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -251,3 +252,74 @@ async def stream_query_ai(request: StreamingQueryRequest) -> StreamingResponse:
             "Access-Control-Allow-Headers": "Content-Type",
         }
     )
+
+
+@router.get(
+    "/conversation/{conversation_id}",
+    summary="Get Conversation History",
+    description="Retrieve the conversation history for a given conversation ID"
+)
+async def get_conversation_history(conversation_id: str):
+    """
+    Get conversation history by conversation ID.
+    
+    Args:
+        conversation_id: The ID of the conversation to retrieve
+        
+    Returns:
+        dict: Conversation history with messages and metadata
+    """
+    try:
+        conversation = conversation_store.get_conversation(conversation_id)
+        if not conversation:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Conversation {conversation_id} not found"
+            )
+        
+        return {
+            "conversation_id": conversation.conversation_id,
+            "created_at": conversation.created_at.isoformat(),
+            "last_accessed": conversation.last_accessed.isoformat(),
+            "message_count": conversation.message_count(),
+            "messages": [
+                {
+                    "query": msg.query,
+                    "response": msg.response,
+                    "timestamp": msg.timestamp.isoformat(),
+                    "metadata": msg.metadata
+                }
+                for msg in conversation.messages
+            ]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving conversation {conversation_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve conversation history"
+        )
+
+
+@router.get(
+    "/conversations/stats",
+    summary="Get Conversation Store Statistics",
+    description="Get statistics about the conversation store"
+)
+async def get_conversation_stats():
+    """
+    Get conversation store statistics.
+    
+    Returns:
+        dict: Statistics about active conversations and store health
+    """
+    try:
+        return conversation_store.get_stats()
+    except Exception as e:
+        logger.error(f"Error getting conversation stats: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve conversation statistics"
+        )
